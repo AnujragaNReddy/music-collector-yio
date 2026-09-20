@@ -10,6 +10,9 @@ import {
   Search,
   Music,
   Check,
+  CheckSquare,
+  Square,
+  AlertTriangle,
 } from "lucide-react";
 
 import ConfigModal from "../components/ConfigModal";
@@ -83,6 +86,16 @@ export default function HomePage() {
 
   const [organizing, setOrganizing] = useState(false);
 
+  // Inline destination for copy/move — seeded from Config, but editable
+  // per-operation so you don't have to reopen the modal to redirect a batch.
+  const [organizeDestination, setOrganizeDestination] = useState(
+    () => loadConfig().moveDestination || "",
+  );
+
+  const [confirmMove, setConfirmMove] = useState(false);
+
+  const [organizeResults, setOrganizeResults] = useState(null);
+
   // ==========================================================
   // MUSIC SCRAPER STATE
   // ==========================================================
@@ -148,12 +161,19 @@ export default function HomePage() {
     loadFiles();
   }, [loadFiles]);
 
+  // Don't leave a primed "Confirm move" button sitting there after the
+  // selection or destination has changed under it.
+  useEffect(() => {
+    setConfirmMove(false);
+  }, [selected, organizeDestination]);
+
   // ==========================================================
   // SAVE CONFIG
   // ==========================================================
 
   function saveConfig(next) {
     setConfig(next);
+    setOrganizeDestination(next.moveDestination || "");
 
     try {
       localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(next));
@@ -458,16 +478,28 @@ export default function HomePage() {
   // COPY / MOVE
   // ==========================================================
 
+  // Move takes files out of their current folder, so it asks once before
+  // going ahead. Copy is harmless and runs straight away.
+  function requestOrganize(action) {
+    if (action === "move" && !confirmMove) {
+      setConfirmMove(true);
+      return;
+    }
+    handleOrganize(action);
+  }
+
   async function handleOrganize(action) {
     if (selected.size === 0) {
       return;
     }
 
-    if (!config.moveDestination.trim()) {
+    const destination = organizeDestination.trim();
+
+    if (!destination) {
       setMessage({
         tone: "error",
 
-        text: "No move/copy destination configured — open Config and set one first.",
+        text: "Enter a destination folder for the selected files.",
       });
 
       return;
@@ -475,6 +507,8 @@ export default function HomePage() {
 
     setOrganizing(true);
     setMessage(null);
+    setOrganizeResults(null);
+    setConfirmMove(false);
 
     try {
       const response = await fetch(`${API_BASE}/api/organize`, {
@@ -489,7 +523,7 @@ export default function HomePage() {
         body: JSON.stringify({
           paths: [...selected],
 
-          destination: config.moveDestination.trim(),
+          destination,
 
           action,
         }),
@@ -501,13 +535,17 @@ export default function HomePage() {
 
       const data = await response.json();
 
-      const ok = data.results.filter((r) => r.success).length;
+      const failures = data.results.filter((r) => !r.success);
+
+      const ok = data.results.length - failures.length;
 
       setMessage({
-        tone: "ok",
+        tone: failures.length ? "error" : "ok",
 
         text: `${action === "move" ? "Moved" : "Copied"} ${ok} of ${data.results.length} file(s) to ${data.destination}.`,
       });
+
+      setOrganizeResults(failures.length ? failures : null);
 
       setSelected(new Set());
 
@@ -538,6 +576,31 @@ export default function HomePage() {
 
       return next;
     });
+  }
+
+  // Folder-level checkbox: select or clear every file beneath it at once.
+  function toggleMany(paths, shouldSelect) {
+    setSelected((previous) => {
+      const next = new Set(previous);
+
+      for (const path of paths) {
+        if (shouldSelect) {
+          next.add(path);
+        } else {
+          next.delete(path);
+        }
+      }
+
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelected((previous) =>
+      previous.size === files.length
+        ? new Set()
+        : new Set(files.map((f) => f.relative_path)),
+    );
   }
 
   // ==========================================================
@@ -580,6 +643,13 @@ export default function HomePage() {
   // ==========================================================
 
   const totalSize = files.reduce((sum, f) => sum + (f.size_bytes || 0), 0);
+
+  const selectedSize = files.reduce(
+    (sum, f) => (selected.has(f.relative_path) ? sum + (f.size_bytes || 0) : sum),
+    0,
+  );
+
+  const allSelected = files.length > 0 && selected.size === files.length;
 
   // ==========================================================
   // UI
@@ -862,35 +932,83 @@ export default function HomePage() {
           {formatSize(totalSize)}
         </span>
 
-        {selected.size > 0 && (
-          <div className="dashboard-selection-actions">
-            <span>{selected.size} selected</span>
+        {files.length > 0 && (
+          <button className="dashboard-select-all" onClick={toggleSelectAll}>
+            {allSelected ? <Square size={13} /> : <CheckSquare size={13} />}
+            {allSelected ? "Clear all" : "Select all"}
+          </button>
+        )}
+      </div>
 
+      {selected.size > 0 && (
+        <div className="selection-bar">
+          <div className="selection-bar-count">
+            <CheckSquare size={15} />
+            <strong>{selected.size}</strong> selected
+            <span>{formatSize(selectedSize)}</span>
+          </div>
+
+          <label className="selection-bar-destination">
+            <span>Destination</span>
+            <input
+              type="text"
+              value={organizeDestination}
+              onChange={(e) => setOrganizeDestination(e.target.value)}
+              placeholder="Archive, or Music/Sorted"
+            />
+          </label>
+
+          <div className="selection-bar-actions">
             <button
-              onClick={() => handleOrganize("copy")}
+              className="selection-btn selection-btn-copy"
+              onClick={() => requestOrganize("copy")}
               disabled={organizing}
             >
-              <Copy size={13} />
+              {organizing ? (
+                <Loader2 size={14} className="spin" />
+              ) : (
+                <Copy size={14} />
+              )}
               Copy
             </button>
 
             <button
-              onClick={() => handleOrganize("move")}
+              className={`selection-btn selection-btn-move${confirmMove ? " selection-btn-confirm" : ""}`}
+              onClick={() => requestOrganize("move")}
               disabled={organizing}
+              title={
+                confirmMove
+                  ? "Click again to confirm — files leave their current folder"
+                  : "Move selected files"
+              }
             >
-              <Move size={13} />
-              Move
+              {confirmMove ? <AlertTriangle size={14} /> : <Move size={14} />}
+              {confirmMove ? "Confirm move" : "Move"}
             </button>
 
             <button
+              className="selection-btn selection-btn-clear"
               onClick={() => setSelected(new Set())}
               title="Clear selection"
             >
-              <X size={13} />
+              <X size={14} />
             </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {organizeResults && (
+        <div className="dashboard-message dashboard-message-error">
+          <strong>Some files could not be transferred:</strong>
+          <ul className="organize-failure-list">
+            {organizeResults.map((r) => (
+              <li key={r.path}>
+                {r.path} — {r.error}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {filesError && (
         <p className="dashboard-message dashboard-message-error">
@@ -903,6 +1021,7 @@ export default function HomePage() {
           files={files}
           selected={selected}
           onToggleSelect={toggleSelect}
+          onToggleMany={toggleMany}
           onDownload={handleDownload}
         />
       )}

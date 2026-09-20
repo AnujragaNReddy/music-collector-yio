@@ -38,16 +38,26 @@ function sortedChildren(node) {
   });
 }
 
-function TreeItem({ node, depth, selected, onToggleSelect, onDownload }) {
+function collectFilePaths(node, acc = []) {
+  if (node.type === 'file') {
+    acc.push(node.path);
+    return acc;
+  }
+  for (const child of node.children.values()) collectFilePaths(child, acc);
+  return acc;
+}
+
+function TreeItem({ node, depth, selected, onToggleSelect, onToggleMany, onDownload }) {
   const [open, setOpen] = useState(true);
   const indent = { paddingLeft: 10 + depth * 18 };
 
   if (node.type === 'file') {
+    const isSelected = selected.has(node.path);
     return (
-      <div className="tree-row tree-file" style={indent}>
+      <div className={`tree-row tree-file${isSelected ? ' tree-row-selected' : ''}`} style={indent}>
         <input
           type="checkbox"
-          checked={selected.has(node.path)}
+          checked={isSelected}
           onChange={() => onToggleSelect(node.path)}
         />
         <FileText size={14} className="tree-icon" />
@@ -61,14 +71,29 @@ function TreeItem({ node, depth, selected, onToggleSelect, onDownload }) {
   }
 
   const children = sortedChildren(node);
+  const filePaths = collectFilePaths(node);
+  const selectedCount = filePaths.filter((p) => selected.has(p)).length;
+  const allSelected = filePaths.length > 0 && selectedCount === filePaths.length;
 
   return (
     <div className="tree-dir">
-      <div className="tree-row tree-folder" style={indent} onClick={() => setOpen((v) => !v)}>
-        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        <Folder size={14} className="tree-icon tree-icon-folder" />
-        <span className="tree-name">{node.name}</span>
-        <span className="tree-count">{children.length}</span>
+      <div className="tree-row tree-folder" style={indent}>
+        <input
+          type="checkbox"
+          checked={allSelected}
+          ref={(el) => {
+            if (el) el.indeterminate = selectedCount > 0 && !allSelected;
+          }}
+          onChange={() => onToggleMany(filePaths, !allSelected)}
+        />
+        <span className="tree-folder-label" onClick={() => setOpen((v) => !v)}>
+          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          <Folder size={14} className="tree-icon tree-icon-folder" />
+          <span className="tree-name">{node.name}</span>
+          <span className="tree-count">
+            {selectedCount > 0 ? `${selectedCount}/${filePaths.length}` : filePaths.length}
+          </span>
+        </span>
       </div>
       {open && children.map((child) => (
         <TreeItem
@@ -77,6 +102,7 @@ function TreeItem({ node, depth, selected, onToggleSelect, onDownload }) {
           depth={depth + 1}
           selected={selected}
           onToggleSelect={onToggleSelect}
+          onToggleMany={onToggleMany}
           onDownload={onDownload}
         />
       ))}
@@ -84,7 +110,7 @@ function TreeItem({ node, depth, selected, onToggleSelect, onDownload }) {
   );
 }
 
-export default function FolderTree({ files, selected, onToggleSelect, onDownload }) {
+export default function FolderTree({ files, selected, onToggleSelect, onToggleMany, onDownload }) {
   const root = useMemo(() => buildTree(files), [files]);
   const children = sortedChildren(root);
 
@@ -101,6 +127,7 @@ export default function FolderTree({ files, selected, onToggleSelect, onDownload
           depth={0}
           selected={selected}
           onToggleSelect={onToggleSelect}
+          onToggleMany={onToggleMany}
           onDownload={onDownload}
         />
       ))}
