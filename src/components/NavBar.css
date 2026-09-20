@@ -1,0 +1,66 @@
+.nav-bar {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding: 14px 24px;
+  background: #14141a;
+  border-bottom: 1px solid #2a2a35;
+}
+
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+  font-size: 16px;
+  color: #fff;
+}
+.nav-brand svg {
+  color: #6ab4ff;
+}
+
+.nav-links {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+}
+.nav-links a {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  color: #9a9aa8;
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+}
+.nav-links a:hover {
+  background: #1c1c25;
+  color: #fff;
+}
+.nav-links a.active {
+  background: #23232f;
+  color: #fff;
+}
+
+.runtime-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #9a9aa8;
+}
+.runtime-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ffb454;
+}
+.runtime-ready .runtime-dot {
+  background: #35c76a;
+}
+.runtime-error .runtime-dot {
+  background: #ff5c5c;
+}

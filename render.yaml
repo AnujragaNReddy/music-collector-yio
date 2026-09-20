@@ -1,0 +1,41 @@
+# Two services: a static React frontend, and a Python backend that handles
+# the "Fetch files from URLs" feature (real HTTP downloads + disk writes that
+# the browser-side Pyodide sandbox can't do). Deploy the backend first, copy
+# its live URL, then set REACT_APP_API_URL on the frontend to that URL and
+# redeploy it — Render assigns each service's URL only after its first
+# deploy.
+#
+# API_KEY / REACT_APP_API_KEY: pick any random string and set the SAME value
+# on both services. The backend is public with wide-open CORS, and /api/fetch
+# makes the server request whatever URL it's given, so this key is what keeps
+# it from being an open download relay for anyone who finds the URL.
+#
+# Free-tier web services spin down after inactivity, so the backend's first
+# request after a while will be slow to wake up.
+services:
+  - type: web
+    name: music-collector-backend
+    runtime: python
+    plan: free
+    rootDir: python-backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: API_KEY
+        sync: false
+
+  - type: web
+    name: music-collector
+    runtime: static
+    plan: free
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./build
+    envVars:
+      - key: REACT_APP_API_URL
+        sync: false
+      - key: REACT_APP_API_KEY
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

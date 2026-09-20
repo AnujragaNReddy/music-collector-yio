@@ -1,0 +1,146 @@
+.home-page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 16px 20px;
+  gap: 12px;
+}
+
+.runtime-error-banner {
+  background: #2a1414;
+  border: 1px solid #5c2323;
+  color: #ff9b9b;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13.5px;
+}
+
+.home-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.run-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px;
+  border-radius: 999px;
+  background: #35c76a;
+  color: #06120f;
+  font-weight: 800;
+  font-size: 14px;
+  border: none;
+  cursor: pointer;
+}
+.run-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.lock-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: #17171f;
+  border: 1px solid #2a2a35;
+  color: #d8d8e0;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+}
+.lock-btn:hover {
+  background: #1c1c25;
+}
+
+.install-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: #17171f;
+  border: 1px solid #2a2a35;
+  color: #8a8a99;
+  flex: 1;
+  max-width: 420px;
+}
+.install-form input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  color: #fff;
+  font-size: 13.5px;
+}
+.install-form button {
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: #23232f;
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.install-form button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.toolbar-hint {
+  font-size: 12.5px;
+  color: #8a8a99;
+}
+
+.installed-list {
+  font-size: 12.5px;
+  color: #8a8a99;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.pkg-chip {
+  background: #1c1c25;
+  border: 1px solid #2a2a35;
+  padding: 3px 10px;
+  border-radius: 999px;
+  color: #d8d8e0;
+  font-weight: 600;
+}
+
+.home-panes {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  /* Without this, the single implicit row auto-sizes to fit all of
+     CodeMirror's content instead of filling the available height — which is
+     exactly why the editor grew instead of scrolling. */
+  grid-template-rows: 1fr;
+  gap: 14px;
+  min-height: 0;
+}
+
+.home-panes > * {
+  min-height: 0;
+}
+
+@media (max-width: 860px) {
+  .home-panes {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1.4fr 1fr;
+  }
+}

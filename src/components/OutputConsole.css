@@ -1,0 +1,76 @@
+.output-console {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #101015;
+  border-radius: 10px;
+  border: 1px solid #2a2a35;
+  overflow: hidden;
+}
+
+.output-console-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #8a8a99;
+  border-bottom: 1px solid #2a2a35;
+  background: #17171f;
+}
+
+.output-console-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.output-action {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #8a8a99;
+  padding: 5px 9px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.output-action:hover:not(:disabled) {
+  background: #23232d;
+  color: #fff;
+}
+.output-action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.output-console-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 14px;
+}
+
+.output-empty {
+  color: #5a5a68;
+  font-size: 13px;
+  font-family: 'Consolas', 'SFMono-Regular', Menlo, monospace;
+}
+
+.output-line {
+  margin: 0 0 2px;
+  font-family: 'Consolas', 'SFMono-Regular', Menlo, monospace;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.output-stdout { color: #d8d8e0; }
+.output-stderr { color: #ff6b6b; }
+.output-info { color: #6ab4ff; }
