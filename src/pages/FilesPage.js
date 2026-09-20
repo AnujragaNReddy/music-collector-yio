@@ -143,6 +143,12 @@ export default function FilesPage() {
           disk, sorted by type, with a <code>metadata.json</code> summary. Start it with{' '}
           <code>uvicorn server:app --reload</code> from the <code>python-backend</code> folder.
         </p>
+        <p className="fetch-panel-desc">
+          Destination can be a plain name (<code>Songs</code>), a nested path (<code>Songs/Telugu</code>),
+          or — only if that backend was started with <code>ALLOW_ABSOLUTE_PATHS=true</code> — a full local
+          path (<code>D:\Music\Collection</code>). Absolute paths only work when you run the backend
+          yourself; they're rejected on the public deployment.
+        </p>
         <form onSubmit={handleFetchFiles} className="fetch-form">
           <textarea
             className="fetch-urls-input"
@@ -155,7 +161,7 @@ export default function FilesPage() {
           <div className="fetch-form-row">
             <input
               className="fetch-folder-input"
-              placeholder="Folder name (optional)"
+              placeholder="Destination folder or path (optional)"
               value={folderName}
               onChange={(e) => setFolderName(e.target.value)}
               disabled={fetching}
@@ -175,6 +181,8 @@ export default function FilesPage() {
               {fetchResult.total_success} of {fetchResult.total_requested} file(s) downloaded to{' '}
               <code>{fetchResult.folder}</code>
               {fetchResult.total_failed > 0 && ` (${fetchResult.total_failed} failed)`}.
+              {fetchResult.browsable_in_files_page === false &&
+                ' This path is outside the backend\u2019s Downloads folder, so it won\u2019t show up below — check it directly on disk.'}
             </p>
             {fetchResult.files?.length > 0 && (
               <ul className="fetch-result-list">
@@ -219,7 +227,7 @@ export default function FilesPage() {
             <ul className="fetch-result-list">
               {batch.files.map((f) => (
                 <li key={f.relative_path}>
-                  <span className="fetch-result-category">{f.category}</span>
+                  <span className="fetch-result-category">{f.folder || 'root'}</span>
                   {f.filename} ({formatSize(f.size_bytes)})
                   <button
                     type="button"

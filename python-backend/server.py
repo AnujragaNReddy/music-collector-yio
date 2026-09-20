@@ -37,6 +37,13 @@ DOWNLOADS_ROOT.mkdir(
     exist_ok=True
 )
 
+# Only ever set this to true in your own local environment. It lets a fetch
+# request's destination_path be an absolute path (e.g. "D:\Music") that gets
+# written to directly instead of being confined under DOWNLOADS_ROOT. Leaving
+# it unset (as on the public Render deployment) keeps every write sandboxed
+# inside this backend's own Downloads folder.
+ALLOW_ABSOLUTE_PATHS = os.environ.get("ALLOW_ABSOLUTE_PATHS", "").strip().lower() in ("1", "true", "yes")
+
 EXTENSION_CATEGORIES = {
     "images": {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp"},
     "documents": {".doc", ".docx", ".pdf", ".txt", ".rtf"},
@@ -110,7 +117,42 @@ class FetchRequest(BaseModel):
 
     urls: list[str]
 
+    # A plain name ("Songs"), a nested path ("Songs/Telugu"), or — only when
+    # this server was started with ALLOW_ABSOLUTE_PATHS=true — an absolute
+    # local path ("D:\Music\Collection").
     folder_name: Optional[str] = None
+
+
+def resolve_batch_folder(folder_name: Optional[str]) -> Path:
+    if not folder_name:
+        batch_folder = DOWNLOADS_ROOT / datetime.now().strftime("fetch-%Y%m%d-%H%M%S")
+        batch_folder.mkdir(parents=True, exist_ok=True)
+        return batch_folder
+
+    candidate = Path(folder_name)
+
+    if candidate.is_absolute():
+        if not ALLOW_ABSOLUTE_PATHS:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Absolute destination paths are disabled on this server. "
+                    "Set ALLOW_ABSOLUTE_PATHS=true when running the backend "
+                    "locally to allow this."
+                ),
+            )
+        candidate.mkdir(parents=True, exist_ok=True)
+        return candidate
+
+    safe_parts = [
+        clean_filename(part) for part in candidate.parts if part not in ("", ".", "..")
+    ]
+    safe_parts = [part for part in safe_parts if part]
+    batch_folder = DOWNLOADS_ROOT.joinpath(*safe_parts) if safe_parts else (
+        DOWNLOADS_ROOT / datetime.now().strftime("fetch-%Y%m%d-%H%M%S")
+    )
+    batch_folder.mkdir(parents=True, exist_ok=True)
+    return batch_folder
 
 
 @app.post("/api/fetch", dependencies=[Depends(require_api_key)])
@@ -121,14 +163,7 @@ def fetch_files(request: FetchRequest):
     if not urls:
         raise HTTPException(status_code=400, detail="No URLs provided")
 
-    folder_name = (
-        clean_filename(request.folder_name)
-        if request.folder_name
-        else datetime.now().strftime("fetch-%Y%m%d-%H%M%S")
-    )
-
-    batch_folder = DOWNLOADS_ROOT / (folder_name or "fetch")
-    batch_folder.mkdir(parents=True, exist_ok=True)
+    batch_folder = resolve_batch_folder(request.folder_name)
 
     entries = []
     errors = []
@@ -181,8 +216,11 @@ def fetch_files(request: FetchRequest):
         except requests.RequestException as e:
             errors.append({"url": url, "error": str(e)})
 
+    is_browsable = batch_folder.resolve().is_relative_to(DOWNLOADS_ROOT.resolve())
+
     metadata = {
         "folder": str(batch_folder.resolve()),
+        "browsable_in_files_page": is_browsable,
         "total_requested": len(urls),
         "total_success": len(entries),
         "total_failed": len(errors),
@@ -206,6 +244,10 @@ def fetch_files(request: FetchRequest):
 
 @app.get("/api/files", dependencies=[Depends(require_api_key)])
 def list_fetched_files():
+    # Walks the real folder tree rather than trusting a fixed set of
+    # categories, so however a batch got organized — the built-in
+    # images/documents/audio/etc. split, or a custom folder someone's own
+    # code created (Songs/, Videos/, whatever) — it shows up as-is.
     batches = []
 
     if DOWNLOADS_ROOT.exists():
@@ -213,30 +255,27 @@ def list_fetched_files():
             if not batch_dir.is_dir():
                 continue
 
-            metadata_file = batch_dir / "metadata.json"
-            if not metadata_file.exists():
-                continue
-
-            with open(metadata_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-
             files = []
-            for entry in data.get("files", []):
-                try:
-                    relative_path = Path(entry["location"]).relative_to(DOWNLOADS_ROOT.resolve())
-                except ValueError:
+            for path in sorted(batch_dir.rglob("*")):
+                if not path.is_file() or path.name == "metadata.json":
                     continue
 
+                relative_path = path.relative_to(DOWNLOADS_ROOT)
+                subfolder = path.parent.relative_to(batch_dir)
+
                 files.append({
-                    "filename": entry["filename"],
-                    "category": entry["category"],
-                    "size_bytes": entry["size_bytes"],
+                    "filename": path.name,
+                    "folder": "" if str(subfolder) == "." else str(subfolder).replace("\\", "/"),
+                    "size_bytes": path.stat().st_size,
                     "relative_path": str(relative_path).replace("\\", "/"),
                 })
 
+            if not files:
+                continue
+
             batches.append({
                 "folder_name": batch_dir.name,
-                "total_success": data.get("total_success", len(files)),
+                "total_success": len(files),
                 "files": files,
             })
 
