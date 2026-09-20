@@ -2,7 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { PyodideProvider } from './store/PyodideContext';
 import NavBar from './components/NavBar';
 import HomePage from './pages/HomePage';
-import FilesPage from './pages/FilesPage';
+import PythonEditorPage from './pages/PythonEditorPage';
 
 function Shell() {
   return (
@@ -11,7 +11,7 @@ function Shell() {
       <main>
         <Routes>
           <Route path="/" element={<HomePage />} />
-          <Route path="/files" element={<FilesPage />} />
+          <Route path="/editor" element={<PythonEditorPage />} />
         </Routes>
       </main>
     </div>

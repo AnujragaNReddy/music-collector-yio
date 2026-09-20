@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Code2, FolderOpen } from 'lucide-react';
+import { Code2, FolderOpen, Home } from 'lucide-react';
 import { usePyodide } from '../store/PyodideContext';
 import './NavBar.css';
 
@@ -14,9 +14,11 @@ export default function NavBar() {
         <span>Music Collector</span>
       </div>
       <nav className="nav-links">
-        <Link to="/" className={pathname === '/' ? 'active' : ''}>Home</Link>
-        <Link to="/files" className={pathname === '/files' ? 'active' : ''}>
-          <FolderOpen size={15} /> Files
+        <Link to="/" className={pathname === '/' ? 'active' : ''}>
+          <Home size={15} /> Home
+        </Link>
+        <Link to="/editor" className={pathname === '/editor' ? 'active' : ''}>
+          <FolderOpen size={15} /> Python Editor
         </Link>
       </nav>
       <div className={`runtime-status runtime-${status}`}>

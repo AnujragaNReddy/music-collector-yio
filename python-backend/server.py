@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shutil
 import requests
 
 from datetime import datetime, timezone
@@ -30,6 +31,7 @@ def require_api_key(x_api_key: str = Header(default="")):
     if API_KEY and x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
+
 DOWNLOADS_ROOT = PROJECT_ROOT / "Downloads"
 
 DOWNLOADS_ROOT.mkdir(
@@ -37,11 +39,11 @@ DOWNLOADS_ROOT.mkdir(
     exist_ok=True
 )
 
-# Only ever set this to true in your own local environment. It lets a fetch
-# request's destination_path be an absolute path (e.g. "D:\Music") that gets
-# written to directly instead of being confined under DOWNLOADS_ROOT. Leaving
-# it unset (as on the public Render deployment) keeps every write sandboxed
-# inside this backend's own Downloads folder.
+# Only ever set this to true in your own local environment. It lets a
+# destination be an absolute path (e.g. "D:\Music") that gets written to
+# directly instead of being confined under DOWNLOADS_ROOT. Leaving it unset
+# (as on the public Render deployment) keeps every write sandboxed inside
+# this backend's own Downloads folder.
 ALLOW_ABSOLUTE_PATHS = os.environ.get("ALLOW_ABSOLUTE_PATHS", "").strip().lower() in ("1", "true", "yes")
 
 EXTENSION_CATEGORIES = {
@@ -51,6 +53,8 @@ EXTENSION_CATEGORIES = {
     "audio": {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"},
     "video": {".mp4", ".mov", ".mkv", ".webm", ".avi"},
 }
+
+AUDIO_EXTS = EXTENSION_CATEGORIES["audio"]
 
 
 def categorize_extension(ext):
@@ -91,6 +95,87 @@ def clean_filename(name):
     return name.strip()
 
 
+def resolve_destination_folder(path_str: Optional[str], default_prefix: str = "fetch") -> Path:
+    """Resolve a user-supplied destination into a real folder.
+
+    - Blank -> a fresh timestamped folder under Downloads/.
+    - A plain or nested relative name ("Songs", "Songs/Telugu") -> confined
+      under Downloads/, with every segment sanitized.
+    - An absolute path ("D:\\Music") -> only honored when this server was
+      started with ALLOW_ABSOLUTE_PATHS=true.
+    """
+    if not path_str:
+        folder = DOWNLOADS_ROOT / datetime.now().strftime(f"{default_prefix}-%Y%m%d-%H%M%S")
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder
+
+    candidate = Path(path_str)
+
+    if candidate.is_absolute():
+        if not ALLOW_ABSOLUTE_PATHS:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Absolute destination paths are disabled on this server. "
+                    "Set ALLOW_ABSOLUTE_PATHS=true when running the backend "
+                    "locally to allow this."
+                ),
+            )
+        candidate.mkdir(parents=True, exist_ok=True)
+        return candidate
+
+    safe_parts = [
+        clean_filename(part) for part in candidate.parts if part not in ("", ".", "..")
+    ]
+    safe_parts = [part for part in safe_parts if part]
+    folder = DOWNLOADS_ROOT.joinpath(*safe_parts) if safe_parts else (
+        DOWNLOADS_ROOT / datetime.now().strftime(f"{default_prefix}-%Y%m%d-%H%M%S")
+    )
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def resolve_existing_folder(path_str: Optional[str]) -> Path:
+    """Like resolve_destination_folder, but the folder must already exist
+    (used to pick what to scan, rather than where to write)."""
+    if not path_str:
+        return DOWNLOADS_ROOT
+
+    candidate = Path(path_str)
+
+    if candidate.is_absolute():
+        if not ALLOW_ABSOLUTE_PATHS:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Absolute paths are disabled on this server. Set "
+                    "ALLOW_ABSOLUTE_PATHS=true when running the backend "
+                    "locally to allow this."
+                ),
+            )
+        if not candidate.is_dir():
+            raise HTTPException(status_code=404, detail="Folder not found")
+        return candidate
+
+    safe_parts = [
+        clean_filename(part) for part in candidate.parts if part not in ("", ".", "..")
+    ]
+    target = DOWNLOADS_ROOT.joinpath(*safe_parts) if safe_parts else DOWNLOADS_ROOT
+    if not target.is_dir():
+        raise HTTPException(status_code=404, detail="Folder not found")
+    return target
+
+
+def unique_destination(folder: Path, filename: str) -> Path:
+    dest = folder / filename
+    stem, suffix = Path(filename).stem, Path(filename).suffix
+    counter = 1
+    while dest.exists():
+        dest = folder / f"{stem}-{counter}{suffix}"
+        counter += 1
+    return dest
+
+
 # ============================================================
 # FASTAPI
 # ============================================================
@@ -123,38 +208,6 @@ class FetchRequest(BaseModel):
     folder_name: Optional[str] = None
 
 
-def resolve_batch_folder(folder_name: Optional[str]) -> Path:
-    if not folder_name:
-        batch_folder = DOWNLOADS_ROOT / datetime.now().strftime("fetch-%Y%m%d-%H%M%S")
-        batch_folder.mkdir(parents=True, exist_ok=True)
-        return batch_folder
-
-    candidate = Path(folder_name)
-
-    if candidate.is_absolute():
-        if not ALLOW_ABSOLUTE_PATHS:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Absolute destination paths are disabled on this server. "
-                    "Set ALLOW_ABSOLUTE_PATHS=true when running the backend "
-                    "locally to allow this."
-                ),
-            )
-        candidate.mkdir(parents=True, exist_ok=True)
-        return candidate
-
-    safe_parts = [
-        clean_filename(part) for part in candidate.parts if part not in ("", ".", "..")
-    ]
-    safe_parts = [part for part in safe_parts if part]
-    batch_folder = DOWNLOADS_ROOT.joinpath(*safe_parts) if safe_parts else (
-        DOWNLOADS_ROOT / datetime.now().strftime("fetch-%Y%m%d-%H%M%S")
-    )
-    batch_folder.mkdir(parents=True, exist_ok=True)
-    return batch_folder
-
-
 @app.post("/api/fetch", dependencies=[Depends(require_api_key)])
 def fetch_files(request: FetchRequest):
 
@@ -163,7 +216,7 @@ def fetch_files(request: FetchRequest):
     if not urls:
         raise HTTPException(status_code=400, detail="No URLs provided")
 
-    batch_folder = resolve_batch_folder(request.folder_name)
+    batch_folder = resolve_destination_folder(request.folder_name)
 
     entries = []
     errors = []
@@ -235,7 +288,132 @@ def fetch_files(request: FetchRequest):
 
 
 # ============================================================
-# BROWSE / DOWNLOAD FETCHED FILES
+# COLLECTOR SCRIPT
+#
+# Scans a folder for audio files, reads their real ID3/tag metadata with
+# mutagen, copies them into a tidy "Collection" subfolder as "Artist -
+# Title", and writes a metadata.json describing every song plus where it
+# ended up. This is the server-side version of the tag-reading organizer —
+# it runs against the backend's own real Downloads folder (or another real
+# folder you point it at), not a browser sandbox.
+# ============================================================
+
+class CollectRequest(BaseModel):
+
+    source: Optional[str] = None
+
+
+@app.post("/api/collect", dependencies=[Depends(require_api_key)])
+def run_collector(request: CollectRequest):
+    from mutagen import File as read_tags
+
+    source_folder = resolve_existing_folder(request.source)
+    collection_folder = source_folder / "Collection"
+    collection_folder.mkdir(parents=True, exist_ok=True)
+
+    audio_files = [
+        p for p in source_folder.rglob("*")
+        if p.is_file()
+        and p.suffix.lower() in AUDIO_EXTS
+        and collection_folder.resolve() not in p.resolve().parents
+    ]
+
+    songs = []
+
+    for src in audio_files:
+        info = {"title": src.stem, "artist": "Unknown Artist", "album": "Unknown Album", "duration_seconds": None}
+
+        try:
+            audio = read_tags(src, easy=True)
+            if audio is not None:
+                if audio.get("title"):
+                    info["title"] = audio["title"][0]
+                if audio.get("artist"):
+                    info["artist"] = audio["artist"][0]
+                if audio.get("album"):
+                    info["album"] = audio["album"][0]
+                if audio.info and getattr(audio.info, "length", None):
+                    info["duration_seconds"] = round(audio.info.length, 1)
+        except Exception:
+            pass
+
+        dest_name = clean_filename(f"{info['artist']} - {info['title']}{src.suffix}") or src.name
+        dest_path = unique_destination(collection_folder, dest_name)
+
+        shutil.copyfile(src, dest_path)
+
+        songs.append({
+            "title": info["title"],
+            "artist": info["artist"],
+            "album": info["album"],
+            "duration_seconds": info["duration_seconds"],
+            "original_file": str(src.relative_to(source_folder)).replace("\\", "/"),
+            "location": str(dest_path.resolve()),
+        })
+
+    metadata_path = collection_folder / "metadata.json"
+    with open(metadata_path, "w", encoding="utf-8") as f:
+        json.dump(songs, f, indent=2, ensure_ascii=False)
+
+    return {
+        "source": str(source_folder.resolve()),
+        "collection_folder": str(collection_folder.resolve()),
+        "total_songs": len(songs),
+        "songs": songs,
+    }
+
+
+# ============================================================
+# COPY / MOVE SELECTED FILES
+# ============================================================
+
+class OrganizeRequest(BaseModel):
+
+    paths: list[str]
+    destination: str
+    action: str = "copy"
+
+
+@app.post("/api/organize", dependencies=[Depends(require_api_key)])
+def organize_files(request: OrganizeRequest):
+
+    if request.action not in ("copy", "move"):
+        raise HTTPException(status_code=400, detail="action must be 'copy' or 'move'")
+
+    if not request.paths:
+        raise HTTPException(status_code=400, detail="No files selected")
+
+    destination_folder = resolve_destination_folder(request.destination, default_prefix="organized")
+
+    results = []
+
+    for rel_path in request.paths:
+        source = (DOWNLOADS_ROOT / rel_path).resolve()
+
+        if not source.is_relative_to(DOWNLOADS_ROOT.resolve()) or not source.is_file():
+            results.append({"path": rel_path, "success": False, "error": "Invalid or missing file"})
+            continue
+
+        dest_path = unique_destination(destination_folder, source.name)
+
+        try:
+            if request.action == "move":
+                shutil.move(str(source), str(dest_path))
+            else:
+                shutil.copy2(str(source), str(dest_path))
+            results.append({"path": rel_path, "success": True, "destination": str(dest_path.resolve())})
+        except OSError as e:
+            results.append({"path": rel_path, "success": False, "error": str(e)})
+
+    return {
+        "destination": str(destination_folder.resolve()),
+        "action": request.action,
+        "results": results,
+    }
+
+
+# ============================================================
+# BROWSE / DOWNLOAD FILES
 #
 # On a hosted deployment the server's disk is not something you can open in
 # Explorer, and it's wiped on every redeploy/restart — so these endpoints let
@@ -243,47 +421,29 @@ def fetch_files(request: FetchRequest):
 # ============================================================
 
 @app.get("/api/files", dependencies=[Depends(require_api_key)])
-def list_fetched_files():
-    # Walks the real folder tree rather than trusting a fixed set of
-    # categories, so however a batch got organized — the built-in
-    # images/documents/audio/etc. split, or a custom folder someone's own
-    # code created (Songs/, Videos/, whatever) — it shows up as-is.
-    batches = []
+def list_files():
+    # A flat list of every real file under Downloads/, whatever folder
+    # structure it's actually in — fetch batches, the collector's Collection
+    # folder, anything moved there by /api/organize. The frontend builds the
+    # tree view from these paths.
+    files = []
 
     if DOWNLOADS_ROOT.exists():
-        for batch_dir in sorted(DOWNLOADS_ROOT.iterdir(), reverse=True):
-            if not batch_dir.is_dir():
+        for path in sorted(DOWNLOADS_ROOT.rglob("*")):
+            if not path.is_file():
                 continue
 
-            files = []
-            for path in sorted(batch_dir.rglob("*")):
-                if not path.is_file() or path.name == "metadata.json":
-                    continue
-
-                relative_path = path.relative_to(DOWNLOADS_ROOT)
-                subfolder = path.parent.relative_to(batch_dir)
-
-                files.append({
-                    "filename": path.name,
-                    "folder": "" if str(subfolder) == "." else str(subfolder).replace("\\", "/"),
-                    "size_bytes": path.stat().st_size,
-                    "relative_path": str(relative_path).replace("\\", "/"),
-                })
-
-            if not files:
-                continue
-
-            batches.append({
-                "folder_name": batch_dir.name,
-                "total_success": len(files),
-                "files": files,
+            relative_path = path.relative_to(DOWNLOADS_ROOT)
+            files.append({
+                "relative_path": str(relative_path).replace("\\", "/"),
+                "size_bytes": path.stat().st_size,
             })
 
-    return {"batches": batches}
+    return {"files": files}
 
 
 @app.get("/api/download/{relative_path:path}", dependencies=[Depends(require_api_key)])
-def download_fetched_file(relative_path: str):
+def download_file(relative_path: str):
     target = (DOWNLOADS_ROOT / relative_path).resolve()
 
     if not target.is_relative_to(DOWNLOADS_ROOT.resolve()):

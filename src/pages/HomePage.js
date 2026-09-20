@@ -1,151 +1,257 @@
-import { useState } from 'react';
-import { Play, Loader2, PackagePlus, Lock, Unlock } from 'lucide-react';
-import { usePyodide } from '../store/PyodideContext';
-import CodeEditor from '../components/CodeEditor';
-import OutputConsole from '../components/OutputConsole';
+import { useCallback, useEffect, useState } from 'react';
+import { Download, Settings, Sparkles, Loader2, Copy, Move, X } from 'lucide-react';
+import ConfigModal from '../components/ConfigModal';
+import FolderTree from '../components/FolderTree';
+import { formatSize } from '../lib/format';
 import './HomePage.css';
 
-const STARTER_CODE = `# MUSIC COLLECTOR
-# Organizes audio files you've uploaded on the Files tab: reads each file's
-# real ID3/tag metadata with mutagen, copies it into a tidy "collection"
-# folder, and writes a metadata.json describing every song plus where it
-# ended up. "mutagen" is auto-installed the first time you hit Run.
+const API_BASE = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000';
+const API_KEY = process.env.REACT_APP_API_KEY || '';
+const AUTH_HEADERS = API_KEY ? { 'X-API-Key': API_KEY } : {};
 
-import json
-import shutil
-from pathlib import Path
-from mutagen import File as read_tags
+const CONFIG_STORAGE_KEY = 'music-collector-config';
+const DEFAULT_CONFIG = { sourceUrls: '', destinationDir: '', moveDestination: '' };
 
-SOURCE_DIR = Path(".")
-COLLECTION_DIR = Path("collection")
-AUDIO_EXTS = {".mp3", ".flac", ".wav", ".m4a", ".ogg", ".aac"}
+function loadConfig() {
+  try {
+    const raw = localStorage.getItem(CONFIG_STORAGE_KEY);
+    return raw ? { ...DEFAULT_CONFIG, ...JSON.parse(raw) } : DEFAULT_CONFIG;
+  } catch {
+    return DEFAULT_CONFIG;
+  }
+}
 
-COLLECTION_DIR.mkdir(exist_ok=True)
-
-def safe_name(text, fallback):
-    text = (text or fallback).strip()
-    return "".join(c for c in text if c not in '<>:"/\\\\|?*') or fallback
-
-def read_metadata(path):
-    info = {"title": path.stem, "artist": "Unknown Artist", "album": "Unknown Album", "duration_seconds": None}
-    try:
-        audio = read_tags(path, easy=True)
-        if audio is None:
-            return info
-        if audio.get("title"):
-            info["title"] = audio["title"][0]
-        if audio.get("artist"):
-            info["artist"] = audio["artist"][0]
-        if audio.get("album"):
-            info["album"] = audio["album"][0]
-        if audio.info and getattr(audio.info, "length", None):
-            info["duration_seconds"] = round(audio.info.length, 1)
-    except Exception as err:
-        print(f"  (could not read tags: {err})")
-    return info
-
-songs = []
-audio_files = [f for f in SOURCE_DIR.iterdir() if f.is_file() and f.suffix.lower() in AUDIO_EXTS]
-
-if not audio_files:
-    print("No audio files found. Upload some on the Files tab first, then hit Run again.")
-else:
-    print(f"Found {len(audio_files)} audio file(s). Organizing...")
-
-for src in audio_files:
-    meta = read_metadata(src)
-    dest_name = safe_name(f"{meta['artist']} - {meta['title']}{src.suffix}", src.name)
-    dest_path = COLLECTION_DIR / dest_name
-    shutil.copyfile(src, dest_path)
-
-    songs.append({
-        "title": meta["title"],
-        "artist": meta["artist"],
-        "album": meta["album"],
-        "duration_seconds": meta["duration_seconds"],
-        "original_file": src.name,
-        "location": str(dest_path),
-    })
-    print(f"  -> {meta['artist']} - {meta['title']}  ({dest_path})")
-
-metadata_path = COLLECTION_DIR / "metadata.json"
-with open(metadata_path, "w", encoding="utf-8") as f:
-    json.dump(songs, f, indent=2, ensure_ascii=False)
-
-print(f"\\nDone. {len(songs)} song(s) organized into '{COLLECTION_DIR}/'.")
-print(f"Metadata written to {metadata_path}")
-print("Open the Files tab to browse or download the collection folder contents.")
-`;
+async function parseErrorDetail(response) {
+  const detail = await response.json().catch(() => null);
+  return detail?.detail || `Request failed (${response.status})`;
+}
 
 export default function HomePage() {
-  const { status, loadError, running, output, clearOutput, runCode, installPackage, installing, installedPackages } = usePyodide();
-  const [code, setCode] = useState(STARTER_CODE);
-  const [pkgName, setPkgName] = useState('');
-  const [locked, setLocked] = useState(true);
+  const [config, setConfig] = useState(loadConfig);
+  const [configOpen, setConfigOpen] = useState(false);
 
-  const ready = status === 'ready';
+  const [files, setFiles] = useState([]);
+  const [filesError, setFilesError] = useState('');
+  const [loadingFiles, setLoadingFiles] = useState(false);
 
-  function handleRun() {
-    if (!ready || running) return;
-    runCode(code);
+  const [selected, setSelected] = useState(new Set());
+
+  const [fetching, setFetching] = useState(false);
+  const [collecting, setCollecting] = useState(false);
+  const [organizing, setOrganizing] = useState(false);
+  const [message, setMessage] = useState(null); // { tone: 'ok' | 'error', text }
+
+  const loadFiles = useCallback(async () => {
+    setLoadingFiles(true);
+    setFilesError('');
+    try {
+      const response = await fetch(`${API_BASE}/api/files`, { headers: AUTH_HEADERS });
+      if (!response.ok) throw new Error(await parseErrorDetail(response));
+      const data = await response.json();
+      setFiles(data.files || []);
+    } catch (err) {
+      setFilesError(
+        err.message === 'Failed to fetch' ? `Could not reach the backend at ${API_BASE}.` : err.message
+      );
+    } finally {
+      setLoadingFiles(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadFiles();
+  }, [loadFiles]);
+
+  function saveConfig(next) {
+    setConfig(next);
+    try {
+      localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // localStorage unavailable (private mode, etc.) — config still works for this session
+    }
   }
 
-  function handleInstall(e) {
-    e.preventDefault();
-    if (!pkgName.trim()) return;
-    installPackage(pkgName.trim());
-    setPkgName('');
+  async function handleFetch() {
+    const urls = config.sourceUrls.split('\n').map((u) => u.trim()).filter(Boolean);
+    if (urls.length === 0) {
+      setMessage({ tone: 'error', text: 'No source URLs configured — open Config and add some first.' });
+      return;
+    }
+
+    setFetching(true);
+    setMessage(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/fetch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+        body: JSON.stringify({ urls, folder_name: config.destinationDir.trim() || undefined }),
+      });
+      if (!response.ok) throw new Error(await parseErrorDetail(response));
+      const data = await response.json();
+      setMessage({
+        tone: 'ok',
+        text: `Fetched ${data.total_success} of ${data.total_requested} file(s) into ${data.folder}${
+          data.total_failed ? ` (${data.total_failed} failed)` : ''
+        }.`,
+      });
+      loadFiles();
+    } catch (err) {
+      setMessage({ tone: 'error', text: err.message });
+    } finally {
+      setFetching(false);
+    }
   }
+
+  async function handleCollect() {
+    setCollecting(true);
+    setMessage(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/collect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+        body: JSON.stringify({ source: config.destinationDir.trim() || undefined }),
+      });
+      if (!response.ok) throw new Error(await parseErrorDetail(response));
+      const data = await response.json();
+      setMessage({
+        tone: 'ok',
+        text: `Collector organized ${data.total_songs} song(s) into ${data.collection_folder}.`,
+      });
+      loadFiles();
+    } catch (err) {
+      setMessage({ tone: 'error', text: err.message });
+    } finally {
+      setCollecting(false);
+    }
+  }
+
+  async function handleOrganize(action) {
+    if (selected.size === 0) return;
+    if (!config.moveDestination.trim()) {
+      setMessage({ tone: 'error', text: 'No move/copy destination configured — open Config and set one first.' });
+      return;
+    }
+
+    setOrganizing(true);
+    setMessage(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/organize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+        body: JSON.stringify({ paths: [...selected], destination: config.moveDestination.trim(), action }),
+      });
+      if (!response.ok) throw new Error(await parseErrorDetail(response));
+      const data = await response.json();
+      const ok = data.results.filter((r) => r.success).length;
+      setMessage({
+        tone: 'ok',
+        text: `${action === 'move' ? 'Moved' : 'Copied'} ${ok} of ${data.results.length} file(s) to ${data.destination}.`,
+      });
+      setSelected(new Set());
+      loadFiles();
+    } catch (err) {
+      setMessage({ tone: 'error', text: err.message });
+    } finally {
+      setOrganizing(false);
+    }
+  }
+
+  function toggleSelect(path) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }
+
+  async function handleDownload(relativePath, filename) {
+    try {
+      const response = await fetch(`${API_BASE}/api/download/${relativePath}`, { headers: AUTH_HEADERS });
+      if (!response.ok) throw new Error(`Download failed (${response.status})`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setMessage({ tone: 'error', text: err.message });
+    }
+  }
+
+  const totalSize = files.reduce((sum, f) => sum + f.size_bytes, 0);
 
   return (
-    <div className="home-page">
-      {status === 'error' && (
-        <div className="runtime-error-banner">Could not load the Python runtime: {loadError}</div>
+    <div className="dashboard-page">
+      <div className="dashboard-toolbar">
+        <div className="dashboard-toolbar-left">
+          <button className="dash-btn dash-btn-primary" onClick={handleFetch} disabled={fetching}>
+            {fetching ? <Loader2 size={16} className="spin" /> : <Download size={16} />}
+            {fetching ? 'Fetching...' : 'Fetch'}
+          </button>
+          <button className="dash-btn" onClick={handleCollect} disabled={collecting}>
+            {collecting ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
+            {collecting ? 'Running...' : 'Execute Collector Script'}
+          </button>
+        </div>
+        <button className="dash-btn dash-btn-config" onClick={() => setConfigOpen(true)}>
+          <Settings size={16} /> Config
+        </button>
+      </div>
+
+      <p className="dashboard-config-summary">
+        {config.sourceUrls.trim().split('\n').filter(Boolean).length} source URL(s) ·{' '}
+        Destination: <code>{config.destinationDir.trim() || 'Downloads/ (auto-named)'}</code> ·{' '}
+        Move/copy to: <code>{config.moveDestination.trim() || 'not set'}</code>
+      </p>
+
+      {message && (
+        <div className={`dashboard-message dashboard-message-${message.tone}`}>{message.text}</div>
       )}
 
-      <div className="home-toolbar">
-        <button className="run-btn" onClick={handleRun} disabled={!ready || running}>
-          {running ? <Loader2 size={16} className="spin" /> : <Play size={16} fill="currentColor" />}
-          {running ? 'Running...' : 'Run'}
-        </button>
+      <div className="dashboard-section-head">
+        <h3>Downloads folder</h3>
+        <span className="dashboard-section-meta">
+          {files.length} file(s) · {formatSize(totalSize)}
+        </span>
 
-        <button
-          className="lock-btn"
-          onClick={() => setLocked((v) => !v)}
-          title={locked ? 'Unlock editor to make changes' : 'Lock editor'}
-        >
-          {locked ? <Lock size={16} /> : <Unlock size={16} />}
-          {locked ? 'Locked' : 'Editable'}
-        </button>
-
-        <form className="install-form" onSubmit={handleInstall}>
-          <PackagePlus size={16} />
-          <input
-            placeholder="Install a library (e.g. numpy, mutagen)"
-            value={pkgName}
-            onChange={(e) => setPkgName(e.target.value)}
-            disabled={!ready || installing}
-          />
-          <button type="submit" disabled={!ready || installing || !pkgName.trim()}>
-            {installing ? 'Installing...' : 'Install'}
-          </button>
-        </form>
-
-        {!ready && status === 'loading' && (
-          <span className="toolbar-hint">First load takes a few seconds — downloading the Python runtime...</span>
+        {selected.size > 0 && (
+          <div className="dashboard-selection-actions">
+            <span>{selected.size} selected</span>
+            <button onClick={() => handleOrganize('copy')} disabled={organizing}>
+              <Copy size={13} /> Copy
+            </button>
+            <button onClick={() => handleOrganize('move')} disabled={organizing}>
+              <Move size={13} /> Move
+            </button>
+            <button onClick={() => setSelected(new Set())} title="Clear selection">
+              <X size={13} />
+            </button>
+          </div>
         )}
       </div>
 
-      {installedPackages.length > 0 && (
-        <div className="installed-list">
-          Installed: {installedPackages.map((p) => <span key={p} className="pkg-chip">{p}</span>)}
-        </div>
+      {filesError && <p className="dashboard-message dashboard-message-error">{filesError}</p>}
+
+      {!filesError && (
+        <FolderTree
+          files={files}
+          selected={selected}
+          onToggleSelect={toggleSelect}
+          onDownload={handleDownload}
+        />
       )}
 
-      <div className="home-panes">
-        <CodeEditor value={code} onChange={setCode} locked={locked} />
-        <OutputConsole output={output} onClear={clearOutput} />
-      </div>
+      {loadingFiles && <p className="dashboard-loading-hint">Refreshing…</p>}
+
+      <ConfigModal
+        open={configOpen}
+        config={config}
+        onClose={() => setConfigOpen(false)}
+        onSave={saveConfig}
+      />
     </div>
   );
 }

@@ -1,0 +1,82 @@
+.folder-tree {
+  border: 1px solid #2a2a35;
+  border-radius: 10px;
+  background: #101015;
+  overflow: hidden;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px 8px 10px;
+  font-size: 13.5px;
+  color: #d8d8e0;
+}
+
+.tree-folder {
+  cursor: pointer;
+  color: #9a9aa8;
+  font-weight: 600;
+}
+.tree-folder:hover {
+  background: #17171f;
+}
+
+.tree-file:hover {
+  background: #17171f;
+}
+
+.tree-icon {
+  flex-shrink: 0;
+  color: #6ab4ff;
+}
+.tree-icon-folder {
+  color: #ffb454;
+}
+
+.tree-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-count {
+  font-size: 11.5px;
+  color: #5a5a68;
+}
+
+.tree-size {
+  font-size: 12px;
+  color: #5a5a68;
+  flex-shrink: 0;
+}
+
+.tree-download {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: #9a9aa8;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.tree-download:hover {
+  background: #23232f;
+  color: #fff;
+}
+
+.tree-empty {
+  color: #5a5a68;
+  font-size: 14px;
+  padding: 24px;
+  text-align: center;
+  border: 1px dashed #2a2a35;
+  border-radius: 10px;
+}
