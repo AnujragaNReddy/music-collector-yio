@@ -12,6 +12,7 @@
   padding: 8px 14px 8px 10px;
   font-size: 13.5px;
   color: #d8d8e0;
+  min-height: 42px;
 }
 
 .tree-folder {
@@ -43,8 +44,8 @@
 }
 
 .tree-row input[type='checkbox'] {
-  width: 15px;
-  height: 15px;
+  width: 18px;
+  height: 18px;
   accent-color: #6ab4ff;
   cursor: pointer;
   flex-shrink: 0;
@@ -81,8 +82,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   background: transparent;
   border: none;
