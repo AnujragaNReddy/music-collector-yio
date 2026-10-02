@@ -1,3 +1,42 @@
+# Music Collector
+
+## Saving scraped music to Google Drive (optional)
+
+The Music Web Scraper's download step can save songs straight to Google
+Drive instead of the backend's own (ephemeral, free-tier) disk. This needs
+a one-time setup in Google Cloud Console — about 10 minutes — before it
+shows up as an option in the app.
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/) and
+   create a project (or reuse one).
+2. Enable the **Google Drive API** for that project
+   (APIs & Services → Library → search "Google Drive API" → Enable).
+3. Go to **APIs & Services → Credentials → Create Credentials → Service
+   Account**. Give it any name (e.g. "music-collector"). You don't need to
+   grant it any project-level roles.
+4. Open the new service account → **Keys** tab → **Add Key → Create new
+   key → JSON**. This downloads a `.json` file — keep it private, it's a
+   credential.
+5. In your own Google Drive, create (or pick) a folder for scraped music.
+   Right-click it → **Share** → paste the service account's email address
+   (it's the `client_email` field inside the JSON file, looks like
+   `music-collector@your-project.iam.gserviceaccount.com`) → give it
+   **Editor** access.
+6. Open that folder in Drive and copy its **folder ID** from the URL —
+   the part after `/folders/`:
+   `https://drive.google.com/drive/folders/`**`THIS_PART_HERE`**
+7. On the backend service in the Render dashboard, set two environment
+   variables:
+   - `GOOGLE_SERVICE_ACCOUNT_JSON` — paste the **entire contents** of the
+     JSON key file from step 4.
+   - `GOOGLE_DRIVE_ROOT_FOLDER_ID` — the folder ID from step 6.
+8. Redeploy the backend. The "Google Drive" option in the Music Scraper's
+   "Save to" pills becomes clickable once `/api/health` reports
+   `drive_enabled: true`.
+
+Leaving both variables unset is fine — the app just keeps the Drive option
+disabled and everything else works exactly as before.
+
 # Getting Started with Create React App
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).

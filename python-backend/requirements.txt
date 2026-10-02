@@ -4,3 +4,5 @@ requests
 beautifulsoup4
 mutagen
 python-multipart
+google-api-python-client
+google-auth

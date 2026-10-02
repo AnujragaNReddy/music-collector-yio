@@ -13,6 +13,9 @@ import {
   CheckSquare,
   Square,
   AlertTriangle,
+  HardDrive,
+  Cloud,
+  ExternalLink,
 } from "lucide-react";
 
 import ConfigModal from "../components/ConfigModal";
@@ -108,6 +111,10 @@ export default function HomePage() {
 
   const [musicDestination, setMusicDestination] = useState("");
 
+  const [musicDestinationType, setMusicDestinationType] = useState("local");
+
+  const [driveEnabled, setDriveEnabled] = useState(false);
+
   const [scraping, setScraping] = useState(false);
 
   const [downloadingMusic, setDownloadingMusic] = useState(false);
@@ -160,6 +167,13 @@ export default function HomePage() {
   useEffect(() => {
     loadFiles();
   }, [loadFiles]);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/health`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setDriveEnabled(Boolean(data?.drive_enabled)))
+      .catch(() => setDriveEnabled(false));
+  }, []);
 
   // Don't leave a primed "Confirm move" button sitting there after the
   // selection or destination has changed under it.
@@ -391,6 +405,8 @@ export default function HomePage() {
         body: JSON.stringify({
           url: musicUrl.trim(),
 
+          destination_type: musicDestinationType,
+
           destination: musicDestination.trim() || undefined,
 
           quality: musicQuality,
@@ -409,15 +425,27 @@ export default function HomePage() {
 
       const data = await response.json();
 
-      setMessage({
-        tone: "ok",
+      if (musicDestinationType === "drive") {
+        setMessage({
+          tone: "ok",
 
-        text: `Downloaded ${data.total_downloaded} of ${data.total_requested || selectedIndexes.length} song(s) into ${data.destination}${
-          data.total_failed ? ` (${data.total_failed} failed)` : ""
-        }.`,
-      });
+          text: `Uploaded ${data.total_downloaded} of ${selectedIndexes.length} song(s) to Google Drive${
+            data.total_failed ? ` (${data.total_failed} failed)` : ""
+          }.`,
 
-      loadFiles();
+          link: data.drive_folder_link,
+        });
+      } else {
+        setMessage({
+          tone: "ok",
+
+          text: `Downloaded ${data.total_downloaded} of ${data.total_requested || selectedIndexes.length} song(s) into ${data.destination}${
+            data.total_failed ? ` (${data.total_failed} failed)` : ""
+          }.`,
+        });
+
+        loadFiles();
+      }
     } catch (err) {
       setMessage({
         tone: "error",
@@ -681,6 +709,32 @@ export default function HomePage() {
           </div>
         </div>
 
+        <div className="music-dest-type-row">
+          <span>Save to</span>
+          <div className="music-dest-type-pills">
+            <button
+              type="button"
+              className={`music-dest-type-pill ${musicDestinationType === "local" ? "active" : ""}`}
+              onClick={() => setMusicDestinationType("local")}
+            >
+              <HardDrive size={13} /> Backend disk
+            </button>
+            <button
+              type="button"
+              className={`music-dest-type-pill ${musicDestinationType === "drive" ? "active" : ""}`}
+              onClick={() => driveEnabled && setMusicDestinationType("drive")}
+              disabled={!driveEnabled}
+              title={
+                driveEnabled
+                  ? ""
+                  : "Not configured on the backend yet — set GOOGLE_SERVICE_ACCOUNT_JSON and GOOGLE_DRIVE_ROOT_FOLDER_ID (see README)."
+              }
+            >
+              <Cloud size={13} /> Google Drive
+            </button>
+          </div>
+        </div>
+
         <div className="music-scraper-form">
           {/* WEBSITE */}
 
@@ -740,7 +794,11 @@ export default function HomePage() {
           {/* DESTINATION */}
 
           <label className="music-field music-field-destination">
-            <span>Destination</span>
+            <span>
+              {musicDestinationType === "drive"
+                ? "Drive folder (under your configured root)"
+                : "Destination"}
+            </span>
 
             <input
               type="text"
@@ -916,6 +974,19 @@ export default function HomePage() {
       {message && (
         <div className={`dashboard-message dashboard-message-${message.tone}`}>
           {message.text}
+          {message.link && (
+            <>
+              {" "}
+              <a
+                href={message.link}
+                target="_blank"
+                rel="noreferrer"
+                className="dashboard-message-link"
+              >
+                Open in Drive <ExternalLink size={12} />
+              </a>
+            </>
+          )}
         </div>
       )}
 

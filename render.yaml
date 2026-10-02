@@ -12,6 +12,13 @@
 #
 # Free-tier web services spin down after inactivity, so the backend's first
 # request after a while will be slow to wake up.
+#
+# GOOGLE_SERVICE_ACCOUNT_JSON / GOOGLE_DRIVE_ROOT_FOLDER_ID: optional — only
+# needed if you want the Music Scraper's "Google Drive" destination option.
+# Free-tier disk here is ephemeral (wiped on redeploy), so Drive is the
+# durable choice. See README.md for the one-time setup (a Google Cloud
+# service account, shared with one Drive folder). Leave both unset and the
+# feature just stays hidden in the UI — everything else works as before.
 services:
   - type: web
     name: music-collector-backend
@@ -22,6 +29,10 @@ services:
     startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: API_KEY
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: GOOGLE_DRIVE_ROOT_FOLDER_ID
         sync: false
 
   - type: web

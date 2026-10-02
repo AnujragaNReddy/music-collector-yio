@@ -16,6 +16,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+import drive
+
 
 # ============================================================
 # CONFIG
@@ -1016,13 +1018,18 @@ class ScrapeAndDownloadRequest(BaseModel):
     # Webpage to scrape
     url: str
 
+    # "local" (this backend's own disk, the default) or "drive"
+    # (upload to Google Drive instead — see drive.py).
+    destination_type: str = "local"
+
     # Destination
     #
-    # Example:
+    # Local example:
     #   "Music/Telugu"
-    #
-    # Or:
     #   "D:\\Music"
+    #
+    # Drive example (nested under GOOGLE_DRIVE_ROOT_FOLDER_ID):
+    #   "Music/Telugu"
     #
     destination: Optional[str] = None
 
@@ -1165,6 +1172,154 @@ def scrape_and_download_music(
         )
         or "Music"
     )
+
+    # ========================================================
+    # 4b. GOOGLE DRIVE DESTINATION (separate path entirely —
+    # does not touch local disk at all)
+    # ========================================================
+
+    if request.destination_type == "drive":
+
+        if not drive.drive_enabled():
+
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Google Drive isn't configured on this backend. "
+                    "Set GOOGLE_SERVICE_ACCOUNT_JSON and "
+                    "GOOGLE_DRIVE_ROOT_FOLDER_ID — see README.md."
+                )
+            )
+
+        destination_path = (
+            request.destination
+            or f"Music/{album_name}"
+        )
+
+        try:
+            parent_folder = drive.resolve_drive_folder(destination_path)
+            audio_folder_id = drive.get_or_create_folder(
+                "audio", parent_folder["id"]
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Could not reach Google Drive: {e}"
+            )
+
+        entries = []
+        errors = []
+        used_names = set()
+
+        for index, song in enumerate(songs):
+
+            song_url = song["url"]
+
+            try:
+                if not song_url.startswith(("http://", "https://")):
+                    raise ValueError("Invalid audio URL")
+
+                response = requests.get(
+                    song_url, headers=HEADERS, timeout=120
+                )
+                response.raise_for_status()
+
+                raw_name = unquote(
+                    Path(urlparse(song_url).path).name
+                )
+                if not raw_name:
+                    raw_name = f"{song['title']}.mp3"
+                raw_name = clean_filename(raw_name)
+                if not Path(raw_name).suffix:
+                    raw_name += ".mp3"
+
+                stem = Path(raw_name).stem
+                suffix = Path(raw_name).suffix
+                filename = raw_name
+                counter = 1
+                while filename.lower() in used_names:
+                    filename = f"{stem}-{counter}{suffix}"
+                    counter += 1
+                used_names.add(filename.lower())
+
+                uploaded = drive.upload_bytes(
+                    response.content,
+                    filename,
+                    audio_folder_id,
+                    mime_type=response.headers.get(
+                        "content-type", "application/octet-stream"
+                    ),
+                )
+
+                entries.append({
+                    "index": index,
+                    "title": song["title"],
+                    "filename": filename,
+                    "quality": song["quality"],
+                    "language": request.language,
+                    "source_page": request.url,
+                    "url": song_url,
+                    "drive_file_id": uploaded["id"],
+                    "drive_view_link": uploaded["web_view_link"],
+                    "size_bytes": len(response.content),
+                    "content_type": response.headers.get("content-type", ""),
+                    "downloaded_at": datetime.now(timezone.utc).isoformat(),
+                    "status": "downloaded",
+                })
+
+            except Exception as e:
+                errors.append({
+                    "index": index,
+                    "title": song.get("title", "Unknown Song"),
+                    "url": song_url,
+                    "source_page": request.url,
+                    "error": str(e),
+                    "status": "failed",
+                })
+
+        metadata = {
+            "type": "music_collection",
+            "destination_type": "drive",
+            "source": {
+                "webpage": request.url,
+                "language": request.language,
+                "requested_quality": request.quality,
+            },
+            "destination": {
+                "drive_folder_id": parent_folder["id"],
+                "drive_folder_link": parent_folder["web_view_link"],
+            },
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "total_discovered": len(discovered),
+            "total_requested": len(songs),
+            "total_downloaded": len(entries),
+            "total_failed": len(errors),
+            "files": entries,
+            "errors": errors,
+        }
+
+        try:
+            drive.upload_bytes(
+                json.dumps(metadata, indent=2, ensure_ascii=False).encode("utf-8"),
+                "metadata.json",
+                parent_folder["id"],
+                mime_type="application/json",
+            )
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "destination_type": "drive",
+            "source_page": request.url,
+            "album": album_name,
+            "drive_folder_link": parent_folder["web_view_link"],
+            "total_discovered": len(discovered),
+            "total_downloaded": len(entries),
+            "total_failed": len(errors),
+            "songs": entries,
+            "errors": errors,
+        }
 
     # ========================================================
     # 5. DESTINATION
@@ -2292,4 +2447,6 @@ def health():
         "absolute_paths_enabled": (
             ALLOW_ABSOLUTE_PATHS
         ),
+
+        "drive_enabled": drive.drive_enabled(),
     }
