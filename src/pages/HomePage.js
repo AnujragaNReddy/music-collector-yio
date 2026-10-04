@@ -171,7 +171,14 @@ export default function HomePage() {
   useEffect(() => {
     fetch(`${API_BASE}/api/health`)
       .then((res) => (res.ok ? res.json() : null))
-      .then((data) => setDriveEnabled(Boolean(data?.drive_enabled)))
+      .then((data) => {
+        const enabled = Boolean(data?.drive_enabled);
+        setDriveEnabled(enabled);
+        // Default new scrapes to Drive once we know it's actually
+        // configured — runs once on mount, so it never clobbers a
+        // destination the user already picked by hand.
+        if (enabled) setMusicDestinationType("drive");
+      })
       .catch(() => setDriveEnabled(false));
   }, []);
 
