@@ -1,37 +1,58 @@
 """Google Drive upload helper for scraped music files.
 
-Uses a service account rather than per-user OAuth: this is a backend-only,
-single-user tool with no login screen, and a service account needs no
-interactive consent flow or token refresh to babysit. It has its own
-identity and can only see a Drive folder once that folder is explicitly
-shared with its email address — see README.md for the one-time setup.
+Uses OAuth delegation (acting as the user, against their own Drive storage
+quota) rather than a service account — service accounts have no storage
+quota of their own and can't create files even in a folder shared with
+them (Google's own error: "Service Accounts do not have storage quota.
+... use OAuth delegation instead."). The one-time authorization is done
+locally via get_drive_token.py (see README.md); the resulting refresh
+token lets this module silently mint fresh access tokens on every call,
+with no further interaction needed.
+
+Scope is drive.file (access only to files/folders this app itself
+created) rather than the full drive scope: drive.file is not a
+Google-restricted scope, so the OAuth consent screen can be published to
+Production without Google's manual review — the full drive scope would
+either require that review or be stuck in "Testing" status, where
+refresh tokens expire after 7 days.
 """
 
 import io
-import json
 import os
 from functools import lru_cache
 from typing import Optional
 
-from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
-SCOPES = ["https://www.googleapis.com/auth/drive"]
+SCOPES = ["https://www.googleapis.com/auth/drive.file"]
+TOKEN_URI = "https://oauth2.googleapis.com/token"
 
 ROOT_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_ROOT_FOLDER_ID", "").strip()
-SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+OAUTH_CLIENT_ID = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+OAUTH_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+OAUTH_REFRESH_TOKEN = os.environ.get("GOOGLE_OAUTH_REFRESH_TOKEN", "").strip()
 
 
 def drive_enabled() -> bool:
-    return bool(ROOT_FOLDER_ID and SERVICE_ACCOUNT_JSON)
+    return bool(
+        ROOT_FOLDER_ID
+        and OAUTH_CLIENT_ID
+        and OAUTH_CLIENT_SECRET
+        and OAUTH_REFRESH_TOKEN
+    )
 
 
 @lru_cache(maxsize=1)
 def _get_service():
-    info = json.loads(SERVICE_ACCOUNT_JSON)
-    credentials = service_account.Credentials.from_service_account_info(
-        info, scopes=SCOPES
+    credentials = Credentials(
+        token=None,
+        refresh_token=OAUTH_REFRESH_TOKEN,
+        token_uri=TOKEN_URI,
+        client_id=OAUTH_CLIENT_ID,
+        client_secret=OAUTH_CLIENT_SECRET,
+        scopes=SCOPES,
     )
     return build("drive", "v3", credentials=credentials, cache_discovery=False)
 

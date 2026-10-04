@@ -3,39 +3,53 @@
 ## Saving scraped music to Google Drive (optional)
 
 The Music Web Scraper's download step can save songs straight to Google
-Drive instead of the backend's own (ephemeral, free-tier) disk. This needs
-a one-time setup in Google Cloud Console — about 10 minutes — before it
-shows up as an option in the app.
+Drive instead of the backend's own (ephemeral, free-tier) disk. This uses
+**OAuth delegation** — the app writes against *your own* Drive storage
+quota, not a service account's (service accounts have none of their own,
+and can't create files even in a folder shared with them). One-time setup,
+about 10 minutes:
 
 1. Go to the [Google Cloud Console](https://console.cloud.google.com/) and
    create a project (or reuse one).
 2. Enable the **Google Drive API** for that project
    (APIs & Services → Library → search "Google Drive API" → Enable).
-3. Go to **APIs & Services → Credentials → Create Credentials → Service
-   Account**. Give it any name (e.g. "music-collector"). You don't need to
-   grant it any project-level roles.
-4. Open the new service account → **Keys** tab → **Add Key → Create new
-   key → JSON**. This downloads a `.json` file — keep it private, it's a
-   credential.
-5. In your own Google Drive, create (or pick) a folder for scraped music.
-   Right-click it → **Share** → paste the service account's email address
-   (it's the `client_email` field inside the JSON file, looks like
-   `music-collector@your-project.iam.gserviceaccount.com`) → give it
-   **Editor** access.
-6. Open that folder in Drive and copy its **folder ID** from the URL —
-   the part after `/folders/`:
-   `https://drive.google.com/drive/folders/`**`THIS_PART_HERE`**
-7. On the backend service in the Render dashboard, set two environment
-   variables:
-   - `GOOGLE_SERVICE_ACCOUNT_JSON` — paste the **entire contents** of the
-     JSON key file from step 4.
-   - `GOOGLE_DRIVE_ROOT_FOLDER_ID` — the folder ID from step 6.
-8. Redeploy the backend. The "Google Drive" option in the Music Scraper's
+3. Go to **APIs & Services → OAuth consent screen**, fill in the minimum
+   (app name, your email), and click **Publish App**. (Only `drive.file`
+   scope is used here, which isn't Google-restricted, so this publish step
+   needs no manual review from Google — it's just a button click.)
+4. Go to **APIs & Services → Credentials → Create Credentials → OAuth
+   client ID**, type **Desktop app**. Copy the **Client ID** and **Client
+   Secret** it gives you.
+5. On your own machine, with `python-backend/requirements.txt` installed
+   (`pip install -r requirements.txt`), set those two values and run the
+   one-time authorization script:
+   ```
+   # macOS/Linux
+   export GOOGLE_OAUTH_CLIENT_ID=...
+   export GOOGLE_OAUTH_CLIENT_SECRET=...
+
+   # Windows PowerShell
+   $env:GOOGLE_OAUTH_CLIENT_ID="..."
+   $env:GOOGLE_OAUTH_CLIENT_SECRET="..."
+
+   python get_drive_token.py
+   ```
+   A browser window opens — sign in and approve access. The script then
+   creates a fresh **"Music Collector"** folder in your Drive (the app
+   needs to have created the folder itself to see it under the `drive.file`
+   scope) and prints four values.
+6. Copy those four printed values into the backend service's environment
+   variables in the Render dashboard: `GOOGLE_OAUTH_CLIENT_ID`,
+   `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REFRESH_TOKEN`,
+   `GOOGLE_DRIVE_ROOT_FOLDER_ID`.
+7. Redeploy the backend. The "Google Drive" option in the Music Scraper's
    "Save to" pills becomes clickable once `/api/health` reports
    `drive_enabled: true`.
 
-Leaving both variables unset is fine — the app just keeps the Drive option
-disabled and everything else works exactly as before.
+Leaving these unset is fine — the app just keeps the Drive option disabled
+and everything else works exactly as before. The new Drive folder can be
+renamed or moved afterward from within Drive without breaking access,
+since it's tracked by id, not by name/location.
 
 # Getting Started with Create React App
 

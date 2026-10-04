@@ -13,12 +13,15 @@
 # Free-tier web services spin down after inactivity, so the backend's first
 # request after a while will be slow to wake up.
 #
-# GOOGLE_SERVICE_ACCOUNT_JSON / GOOGLE_DRIVE_ROOT_FOLDER_ID: optional — only
-# needed if you want the Music Scraper's "Google Drive" destination option.
-# Free-tier disk here is ephemeral (wiped on redeploy), so Drive is the
-# durable choice. See README.md for the one-time setup (a Google Cloud
-# service account, shared with one Drive folder). Leave both unset and the
-# feature just stays hidden in the UI — everything else works as before.
+# GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET / GOOGLE_OAUTH_REFRESH_TOKEN
+# / GOOGLE_DRIVE_ROOT_FOLDER_ID: optional — only needed for the Music
+# Scraper's "Google Drive" destination option. Free-tier disk here is
+# ephemeral (wiped on redeploy), so Drive is the durable choice. Uses OAuth
+# delegation (writes against your own Drive quota), not a service account —
+# service accounts have no storage quota of their own and can't create
+# files even in a shared folder. See README.md for the one-time setup
+# (run python-backend/get_drive_token.py locally once). Leave these unset
+# and the feature just stays disabled in the UI — everything else works.
 services:
   - type: web
     name: music-collector-backend
@@ -30,7 +33,11 @@ services:
     envVars:
       - key: API_KEY
         sync: false
-      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_OAUTH_REFRESH_TOKEN
         sync: false
       - key: GOOGLE_DRIVE_ROOT_FOLDER_ID
         sync: false
