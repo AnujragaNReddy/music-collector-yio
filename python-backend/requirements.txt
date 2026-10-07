@@ -7,3 +7,5 @@ python-multipart
 google-api-python-client
 google-auth
 google-auth-oauthlib
+# Verifying Yolo-Auth tokens locally, without calling the auth service.
+pyjwt[crypto]

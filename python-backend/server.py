@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 import drive
+import yolo_auth
 
 
 # ============================================================
@@ -443,6 +444,21 @@ app = FastAPI(
     version="2.0.0"
 )
 
+
+# Sign-in, applied to everything except the health check.
+#
+# Called before the CORS middleware: Starlette runs the last-added middleware
+# outermost, so CORS must go on afterwards to attach headers to the 401s
+# raised here, or the browser will not let the page read them.
+#
+# Only /api/health is public, because a health check that needs credentials
+# is not a health check. Everything else - collecting, fetching, listing and
+# organising files - now requires a signed-in user. Nothing here is driven by
+# a scheduled job, so there is no service token.
+yolo_auth.install_auth(
+    app,
+    public=("/api/health", "/docs", "/openapi.json", "/redoc"),
+)
 
 app.add_middleware(
     CORSMiddleware,

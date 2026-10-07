@@ -27,7 +27,26 @@ const API_BASE = process.env.REACT_APP_API_URL || "http://127.0.0.1:8000";
 
 const API_KEY = process.env.REACT_APP_API_KEY || "";
 
-const AUTH_HEADERS = API_KEY ? { "X-API-Key": API_KEY } : {};
+// The Yolo-Auth access token, supplied by the auth bridge in index.js.
+// A getter rather than a stored value: the token refreshes on a timer, so a
+// copy taken once would be stale within the quarter hour.
+let tokenProvider = () => "";
+
+export function setTokenProvider(getToken) {
+  tokenProvider = getToken || (() => "");
+}
+
+// A function rather than the constant this replaced. The constant was
+// evaluated once at module load, which is fine for a fixed API key and wrong
+// for a token that changes.
+function authHeaders() {
+  const token = tokenProvider();
+
+  return {
+    ...(API_KEY ? { "X-API-Key": API_KEY } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
 
 const CONFIG_STORAGE_KEY = "music-collector-config";
 
@@ -143,7 +162,7 @@ export default function HomePage() {
 
     try {
       const response = await fetch(`${API_BASE}/api/files`, {
-        headers: AUTH_HEADERS,
+        headers: authHeaders(),
       });
 
       if (!response.ok) {
@@ -232,7 +251,7 @@ export default function HomePage() {
         headers: {
           "Content-Type": "application/json",
 
-          ...AUTH_HEADERS,
+          ...authHeaders(),
         },
 
         body: JSON.stringify({
@@ -295,7 +314,7 @@ export default function HomePage() {
         headers: {
           "Content-Type": "application/json",
 
-          ...AUTH_HEADERS,
+          ...authHeaders(),
         },
 
         body: JSON.stringify({
@@ -406,7 +425,7 @@ export default function HomePage() {
         headers: {
           "Content-Type": "application/json",
 
-          ...AUTH_HEADERS,
+          ...authHeaders(),
         },
 
         body: JSON.stringify({
@@ -478,7 +497,7 @@ export default function HomePage() {
         headers: {
           "Content-Type": "application/json",
 
-          ...AUTH_HEADERS,
+          ...authHeaders(),
         },
 
         body: JSON.stringify({
@@ -552,7 +571,7 @@ export default function HomePage() {
         headers: {
           "Content-Type": "application/json",
 
-          ...AUTH_HEADERS,
+          ...authHeaders(),
         },
 
         body: JSON.stringify({
@@ -645,7 +664,7 @@ export default function HomePage() {
   async function handleDownload(relativePath, filename) {
     try {
       const response = await fetch(`${API_BASE}/api/download/${relativePath}`, {
-        headers: AUTH_HEADERS,
+        headers: authHeaders(),
       });
 
       if (!response.ok) {
